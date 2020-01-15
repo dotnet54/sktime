@@ -7,8 +7,8 @@ def load_dataset(dataset_name):
     # train_x, train_y = load_from_tsfile_to_dataframe("../sktime/datasets/data/GunPoint/GunPoint_TRAIN.ts")
     # test_x, test_y = load_from_tsfile_to_dataframe("../sktime/datasets/data/GunPoint/GunPoint_TEST.ts")
 
-    data_path = "/data/"
-    archive_name ='Univariate_ts'
+    data_path = "E:/data/"
+    archive_name ='Univariate2018_ts'
 
     train_file = data_path + archive_name + '/' + dataset_name + '/' +  dataset_name + '_TRAIN.ts'
     test_file = data_path + archive_name + '/' + dataset_name + '/' +  dataset_name + '_TEST.ts'

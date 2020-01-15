@@ -4,59 +4,51 @@ from math import inf
 
 import numpy as np
 import pandas as pd
+from scipy import stats
+
 from sklearn.linear_model import RidgeClassifierCV
 from sktime.classifiers.shifaz.similarity import EDSplitter
 from sktime.classifiers.shifaz.dict import BOSSplitter
 
 class ChiefTree:
-    params = None
-
-    Ce = 0
-    Cb = 0
-    Cr = 0
-    lowest_gini = 0.01
-    max_depth = -1  # unlimited
-
-    children = None
-    leaf = None
-    label = None
-    parent = None
-    splitters = None
-
-    #informational
-    depth = 0
-    node_gini = None
-    best_splitter = None
-    best_split = None
-    class_indices = None
-    class_distribution = None
+    _node_id = 0
 
     def __init__(self, **params):
         self.params = params
         self.max_depth = params.get('max_depth', 20)
+        self.lowest_gini = params.get('lowest_gini', 0.01)
         self.Ce = params.get('Ce', 0)
         self.Cb = params.get('Cb', 0)
         self.Cr = params.get('Cr', 0)
 
         #initialize
-        self.children = []
-        self.splitters = []
-        self.leaf = False
-        self.best_splitter = None
+        self.children = {}
+        self.split_functions = []
+        self.best_split_function = None
         self.best_split = None
+        self.leaf = False
+        self.parent = None
+        self.depth = 0
+        self._height = 0
+        self._root = self
+        self._node_id = ChiefTree._node_id + 1
 
-    @classmethod
-    def as_root(cls, parent, **params):
-        tree = cls(**params)
-        tree.parent = None
-        tree.depth = 0
-        return tree
+    # @classmethod
+    # def as_root(cls, **params):
+    #     tree = cls(**params)
+    #     tree.parent = None
+    #     tree.depth = 0
+    #     tree._height = 0
+    #     tree._root = self
+    #     return tree
 
     @classmethod
     def as_child(cls, parent, **params):
         tree = cls(**params)
         tree.parent = parent
         tree.depth = parent.depth + 1
+        tree._height = 0
+        tree.root = parent._root
         return tree
 
     def fit(self, X_train, y_train):
@@ -66,27 +58,24 @@ class ChiefTree:
             self.leaf = True
             return
 
-        self.class_indices = self.get_class_indices(X_train, y_train)
+        class_indices = self.get_class_indices(X_train, y_train)
+        self.generate_split_functions(X_train, y_train)
         candidate_splits = []
-        self.splitters = self.generate_splitters(X_train, y_train)
-        for splitter in self.splitters:
-            candidate_splits.append(splitter.split())
+        for splitter in self.split_functions:
+            candidate_splits.append(splitter.split(X_train, y_train,
+                                                   class_indices = class_indices))
 
-        self.best_splitter = self.argmin(candidate_splits, self.weighted_gini, y_train)
-        splits = candidate_splits[self.best_splitter]
+        best_splitter_index = self.argmin(candidate_splits, self.weighted_gini, y_train)
+        self.best_split_function = self.split_functions[best_splitter_index]
+        #memory intensive,.. dont keep all candidate splits
+        splits = candidate_splits[best_splitter_index]
 
         for key, indices in splits.items():
-            #             print(f'training split {key} : {indices}')
             if len(indices) > 0:
-                _child = ChiefTree.as_child(self, **self.params)
-                self.children.append(_child)
-                # vprint(
-                #     self._print_suffix + f"child {key}:{len(indices)} :{'{0:.4f}'.format(self.gini(y_train.iloc[indices]))}  =" + str(
-                #         self.children))
-                _child.fit(X_train.iloc[indices], y_train.iloc[indices])
-            #             print(_print_suffix + str(self.children))
+                self.children[key] = ChiefTree.as_child(self, **self.params)
+                self.children[key].fit(X_train.iloc[indices], y_train[indices])
             else:
-                print(self._print_suffix + f'no data in the split {key} : {len(indices)}')
+                print(f'no data in the split {key} : {len(indices)}')
 
         return self
 
@@ -95,8 +84,8 @@ class ChiefTree:
         if (self.node_gini <= self.lowest_gini):
             return True
         elif (self.parent is not None and self.node_gini == self.parent.node_gini):
-            print(self._print_suffix + f'Warn no improvemen to gini {self.depth}, {y_train.shape},' +
-                   f' {self.node_gini}, {self.parent.node_gini}, {y_train.value_counts()}, {self.make_label(y_train)}')
+            print(f'Warn no improvemen to gini {self.depth}, {y_train.shape},' +
+                   f' {self.node_gini}, {self.parent.node_gini}, {np.unique(y_train, return_counts=True)[1] }, {self.make_label(y_train)}')
             return True
         elif (self.max_depth != -1 and self.depth > self.max_depth):
             # debug
@@ -107,8 +96,11 @@ class ChiefTree:
         return False
 
     def make_label(self, y_train):
-        label = int(y_train.mode())  # int(y_train.value_counts().max())
-        # vprint(self._print_suffix + f'new leaf {self.depth}, {self.node_gini}, {label}, {y_train.shape}')
+        # print(np.random.choice(stats.mode(y_train)[0], 1))
+        if self.depth > self.root._height:
+            self.root._height = self.depth
+        label = int(np.random.choice(stats.mode(y_train)[0], 1))  # int(y_train.value_counts().max())
+        print(f'new leaf {self.depth}, {self.node_gini}, {label}, {y_train.shape}, {y_train}')
         return label
 
     def get_class_indices(self, X, y):
@@ -120,94 +112,37 @@ class ChiefTree:
 
         return split_indices
 
-    def generate_splitters(self, X_train, y_train):
+    def  generate_split_functions(self, X_train, y_train):
 
-        for e in self.Ce:
+        for e in range(self.Ce):
             splitter = EDSplitter(self, self.params)
-            splitter.split(X_train, y_train)
-            self.splitters.append(splitter)
+            # splitter.split(X_train, y_train)
+            self.split_functions.append(splitter)
 
         # for b in self.Cb:
         #     splitter = BOSSplitter(self.params)
         #     splitter.split(X_train, y_train)
         #     self.splitters.append(splitter)
 
-        return []
+        return None
 
     def predict(self, X_test, y_test):
-        scores = np.zeros(X_test.shape[0])
-        X_test_feature_sampled = X_test.iloc[:, self.features[self.best_candidate]]
-        # print(f'RocketTree: predict: {X_test.shape}, X_test_feature_sampled{X_test_feature_sampled.shape}')
-
-        for i, row in X_test_feature_sampled.iterrows():
-            #             print(i)
-            node = self
-            label = None
-            while (not node.leaf):
-                #                 print(node)
-                # branch = np.random.randint(0,len(node.children) #debug
-                query = row.values.reshape(1, -1)
-                branch = self.clf[self.best_candidate].predict(query)[0]
-                # print('branch' + str(branch))
-                if branch in node.children:
-                    node = node.children[branch]
-                else:
-                    label = branch
-                    break;
-
-            if label is None:
-                scores[i] = node.label
-            else:
-                scores[i] = label
-        #         print(scores)
-        return scores
-
-
-
-    def splitRidge(self, X, y, split_number):
-        print(f'def m={self.m},X = {X.shape}', v=4)
-
-        _features = list(range(0, X.shape[1]))
-        _features = np.random.choice(_features, self.m, replace=False)
-        self.features[split_number] = _features
-        X_feature_sampled = X.iloc[:, _features]
-        # vprint(self.features, v=4)
-        #         raise KeyboardInterrupt
-
-        # vprint(f'new m={self.m},X = {X.shape}, X_feature_sampled={X_feature_sampled.shape}', v=4)
-
-        if self.params.get('cross_validate', True):
-            self.clf[split_number] = RidgeClassifierCV(alphas=10 ** np.linspace(-3, 3, 10), normalize=True)
-        else:
-            alphas = 10 ** np.linspace(-3, 3, 10)
-            a = alphas[random.randint(0, len(alphas))]
-            self.clf[split_number] = RidgeClassifierCV(alphas=a, normalize=True)
-
-        self.clf[split_number].fit(X_feature_sampled, y)
-        _d = self.clf[split_number].predict(X_feature_sampled)
-        df = pd.Series(_d)
-
-        classes = df.unique()
-        splits = {}  # [None]  * classes.shape[0]
-
-        for i, row in df.iteritems():
-            if row not in splits:
-                splits[row] = []
-            splits[row].append(i)
-        #         print(row)
-
-        return splits
+        return self.best_split_function.predict(X_test, y_test)
 
     def gini(self, y):
         if y.shape[0] == 0:
             return 0
-
-        return 1 - (((y.value_counts() / y.shape[0]).pow(2)).sum())
+        #     print(y.shape[0])
+        #     print(np.unique(y, return_counts=True)[1])
+        #     print(np.unique(y, return_counts=True)[1] / y.shape[0])
+        #     print(np.power(np.unique(y, return_counts=True)[1] / y.shape[0] , 2))
+        #     print(np.sum(np.power(np.unique(y, return_counts=True)[1] / y.shape[0] , 2)))
+        return 1 - np.sum(np.power(np.unique(y, return_counts=True)[1] / y.shape[0], 2))
 
     def weighted_gini(self, splits, y):
         wg = 0
         for k, s in splits.items():
-            wg += len(s) / y.shape[0] * self.gini(y.iloc[s])
+            wg += len(s) / y.shape[0] * self.gini(y[s])
         return wg
 
     def argmin(self, candidate_splits, func_selector, parent_data):
@@ -232,9 +167,6 @@ class ChiefTree:
 
 
 class ChiefForest:
-    k = 1
-    trees = None
-    kwargs = None
 
     def __init__(self, **kwargs):
 
