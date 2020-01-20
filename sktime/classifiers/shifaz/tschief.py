@@ -8,12 +8,14 @@ from scipy import stats
 
 from sklearn.linear_model import RidgeClassifierCV
 from sktime.classifiers.shifaz.similarity import EDSplitter
-from sktime.classifiers.shifaz.dict import BOSSplitter
+from sktime.classifiers.shifaz.dict import BOSSplitter, BOSSDataStore
 
 class ChiefTree:
-    _node_id = 0
+    node_counter = 0 #TODO debug remove
 
     def __init__(self, **params):
+        self.node_id = ChiefTree.node_counter
+        ChiefTree.node_counter += 1
         self.params = params
         self.max_depth = params.get('max_depth', 20)
         self.lowest_gini = params.get('lowest_gini', 0.01)
@@ -28,10 +30,12 @@ class ChiefTree:
         self.best_split = None
         self.leaf = False
         self.parent = None
+        self.root = self
         self.depth = 0
         self._height = 0
-        self._root = self
-        self._node_id = ChiefTree._node_id + 1
+        self._is_root = True
+        self.splitters_initialized_before_train = False
+        self.splitters_initialized_before_test = False
 
     # @classmethod
     # def as_root(cls, **params):
@@ -39,17 +43,33 @@ class ChiefTree:
     #     tree.parent = None
     #     tree.depth = 0
     #     tree._height = 0
-    #     tree._root = self
+    #     tree.root = self
     #     return tree
 
     @classmethod
     def as_child(cls, parent, **params):
         tree = cls(**params)
         tree.parent = parent
+        tree.root = parent.root
         tree.depth = parent.depth + 1
         tree._height = 0
-        tree.root = parent._root
+        tree._is_root = False
         return tree
+
+    def initialize_before_train(self, X_train, y_train):
+
+        if self.Cb > 0:
+            self.root.boss_data_store = BOSSDataStore(**self.params)
+            self.root.boss_data_store.initialize_before_train(self, X_train, y_train)
+
+        self.root.splitters_initialized_before_train = True
+
+    def initialize_before_test(self, X_test, y_test):
+
+        if self.Cb > 0:
+            self.root.boss_data_store.initialize_before_test(self, X_test, y_test)
+
+        self.root.splitters_initialized_before_test = True
 
     def fit(self, X_train, y_train):
         self.node_gini = self.gini(y_train)
@@ -57,6 +77,9 @@ class ChiefTree:
             self.label = self.make_label(y_train)
             self.leaf = True
             return
+
+        if (not self.root.splitters_initialized_before_train):
+            self.root.initialize_before_train(X_train, y_train)
 
         class_indices = self.get_class_indices(X_train, y_train)
         self.generate_split_functions(X_train, y_train)
@@ -116,18 +139,38 @@ class ChiefTree:
 
         for e in range(self.Ce):
             splitter = EDSplitter(self, self.params)
-            # splitter.split(X_train, y_train)
             self.split_functions.append(splitter)
 
-        # for b in self.Cb:
-        #     splitter = BOSSplitter(self.params)
-        #     splitter.split(X_train, y_train)
-        #     self.splitters.append(splitter)
+        for b in range(self.Cb):
+            splitter = BOSSplitter(self, self.params)
+            self.split_functions.append(splitter)
 
         return None
 
     def predict(self, X_test, y_test):
-        return self.best_split_function.predict(X_test, y_test)
+        scores = np.zeros(X_test.shape[0])
+
+        if (not self.root.splitters_initialized_before_test):
+            self.root.initialize_before_test(X_test, y_test)
+
+        for i in range(X_test.shape[0]):
+            query = X_test.iloc[i]
+            node = self #start from root node
+            label = None
+            while (not node.leaf):
+                branch = node.best_split_function.predict(query,i)
+                print(f'branch: {branch}, true label:  {y_test[i]}')
+                if branch in node.children:
+                    node = node.children[branch]
+                else:
+                    label = branch
+                    break;
+            if label is None:
+                scores[i] = node.label
+            else:
+                scores[i] = label
+            #         print(scores)
+        return scores
 
     def gini(self, y):
         if y.shape[0] == 0:

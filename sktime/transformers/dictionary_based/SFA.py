@@ -156,6 +156,29 @@ class SFA(BaseTransformer):
 
         return bags
 
+    #temp shifaz
+    def transform_query(self, X):
+
+        dim = []
+        dfts = self.MFT(X[0])
+        bag = {}
+        lastWord = None
+
+        words = []
+
+        for window in range(dfts.shape[0]):
+            word = self.create_word(dfts[window])
+            words.append(word)
+            lastWord = self.add_to_bag(bag, word, lastWord)
+
+        if self.save_words:
+            self.words.append(words)
+
+        dim.append(pd.Series(bag))
+
+
+        return pd.Series(dim, ['dim_' + str(0)])
+
     def MCB(self, X):
         """
 

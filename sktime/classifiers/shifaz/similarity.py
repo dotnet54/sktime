@@ -9,8 +9,8 @@ class EDSplitter:
 
     def __init__(self, tree, params):
         self.tree = tree
-        self.measure = None
         self.params = params
+        self.measure = None
         self.exemplars = {}
         self._exemplar_indices = []
 
@@ -55,39 +55,18 @@ class EDSplitter:
 
         return splits
 
-    def predict(self, X_test, y_test):
-        scores = np.zeros(X_test.shape[0])
-
-        for i in range(X_test.shape[0]):
-            node = self.tree
-            label = None
-            while (not node.leaf):
-                query = X_test.iloc[i]
-
-                distances = {}
-                min_distance = np.inf
-                for j in self.exemplars:
-                    e = self.exemplars[j]
-                    print(f'e {e[0][0]} --> q {query[0][0]}' )
-                    distances[j] = self.measure(query, e)
-                    if (distances[j] <= min_distance):
-                        min_distance = distances[j]
-                        nearest_e = j
-                print(distances)
-                branch = nearest_e
-                print(f'branch: {branch}, true label:  {y_test[i]}')
-                if branch in node.children:
-                    node = node.children[branch]
-                else:
-                    label = branch
-                    break;
-
-            if label is None:
-                scores[i] = node.label
-            else:
-                scores[i] = label
-            #         print(scores)
-        return scores
+    def predict(self, query, qi):
+        distances = {}
+        min_distance = np.inf
+        for j in self.exemplars:
+            e = self.exemplars[j]
+            print(f'e {e[0][0]} --> q {query[0][0]}' )
+            distances[j] = self.measure(query, e)
+            if (distances[j] <= min_distance):
+                min_distance = distances[j]
+                nearest_e = j
+        print(distances)
+        return nearest_e
 
 
     def euclidean(self, a, b):
