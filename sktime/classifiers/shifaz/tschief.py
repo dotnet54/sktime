@@ -29,6 +29,7 @@ class ChiefTree:
         self.best_split_function = None
         self.best_split = None
         self.leaf = False
+        self.label = None
         self.parent = None
         self.root = self
         self.depth = 0
@@ -36,6 +37,8 @@ class ChiefTree:
         self._is_root = True
         self.splitters_initialized_before_train = False
         self.splitters_initialized_before_test = False
+
+        self.node_gini = None
 
     # @classmethod
     # def as_root(cls, **params):
@@ -78,7 +81,7 @@ class ChiefTree:
             self.leaf = True
             return
 
-        if (not self.root.splitters_initialized_before_train):
+        if not self.root.splitters_initialized_before_train:
             self.root.initialize_before_train(X_train, y_train)
 
         class_indices = self.get_class_indices(X_train, y_train)
@@ -90,7 +93,7 @@ class ChiefTree:
 
         best_splitter_index = self.argmin(candidate_splits, self.weighted_gini, y_train)
         self.best_split_function = self.split_functions[best_splitter_index]
-        #memory intensive,.. dont keep all candidate splits
+        # memory intensive,.. dont keep all candidate splits
         splits = candidate_splits[best_splitter_index]
 
         for key, indices in splits.items():
@@ -104,13 +107,13 @@ class ChiefTree:
 
     def stop_building(self, y_train):
 
-        if (self.node_gini <= self.lowest_gini):
+        if self.node_gini <= self.lowest_gini:
             return True
-        elif (self.parent is not None and self.node_gini == self.parent.node_gini):
-            print(f'Warn no improvemen to gini {self.depth}, {y_train.shape},' +
+        elif self.parent is not None and self.node_gini == self.parent.node_gini:
+            print(f'Warn no improvement to gini {self.depth}, {y_train.shape},' +
                    f' {self.node_gini}, {self.parent.node_gini}, {np.unique(y_train, return_counts=True)[1] }, {self.make_label(y_train)}')
             return True
-        elif (self.max_depth != -1 and self.depth > self.max_depth):
+        elif self.max_depth != -1 and self.depth > self.max_depth:
             # debug
             print(self._print_suffix + f'Error recursion too deep {self.depth}, {self.node_gini}')
             raise KeyboardInterrupt
@@ -135,7 +138,7 @@ class ChiefTree:
 
         return split_indices
 
-    def  generate_split_functions(self, X_train, y_train):
+    def generate_split_functions(self, X_train, y_train):
 
         for e in range(self.Ce):
             splitter = EDSplitter(self, self.params)
@@ -150,21 +153,22 @@ class ChiefTree:
     def predict(self, X_test, y_test):
         scores = np.zeros(X_test.shape[0])
 
-        if (not self.root.splitters_initialized_before_test):
+        if not self.root.splitters_initialized_before_test:
             self.root.initialize_before_test(X_test, y_test)
 
         for i in range(X_test.shape[0]):
             query = X_test.iloc[i]
-            node = self #start from root node
+            # start from root node
+            node = self
             label = None
-            while (not node.leaf):
+            while not node.leaf:
                 branch = node.best_split_function.predict(query,i)
                 print(f'branch: {branch}, true label:  {y_test[i]}')
                 if branch in node.children:
                     node = node.children[branch]
                 else:
                     label = branch
-                    break;
+                    break
             if label is None:
                 scores[i] = node.label
             else:
