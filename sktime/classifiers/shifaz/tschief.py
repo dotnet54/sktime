@@ -9,6 +9,7 @@ from scipy import stats
 from sklearn.linear_model import RidgeClassifierCV
 from sktime.classifiers.shifaz.similarity import EDSplitter
 from sktime.classifiers.shifaz.dict import BOSSplitter, BOSSDataStore
+from sktime.classifiers.shifaz.interval import RISESplitter
 
 from sktime.classifiers.base import BaseClassifier
 
@@ -149,6 +150,10 @@ class ChiefTree(BaseClassifier):
 
         for b in range(self.Cb):
             splitter = BOSSplitter(self, self.params)
+            self.split_functions.append(splitter)
+
+        if self.Cr > 0:
+            splitter = RISESplitter(self.self.params)
             self.split_functions.append(splitter)
 
         return None
