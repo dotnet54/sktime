@@ -1,4 +1,4 @@
-#%%
+# %%
 import random
 from math import inf
 
@@ -10,8 +10,11 @@ from sklearn.linear_model import RidgeClassifierCV
 from sktime.classifiers.shifaz.similarity import EDSplitter
 from sktime.classifiers.shifaz.dict import BOSSplitter, BOSSDataStore
 
-class ChiefTree:
-    node_counter = 0 #TODO debug remove
+from sktime.classifiers.base import BaseClassifier
+
+
+class ChiefTree(BaseClassifier):
+    node_counter = 0  # TODO debug remove
 
     def __init__(self, **params):
         self.node_id = ChiefTree.node_counter
@@ -23,7 +26,7 @@ class ChiefTree:
         self.Cb = params.get('Cb', 0)
         self.Cr = params.get('Cr', 0)
 
-        #initialize
+        # initialize
         self.children = {}
         self.split_functions = []
         self.best_split_function = None
@@ -59,22 +62,22 @@ class ChiefTree:
         tree._is_root = False
         return tree
 
-    def initialize_before_train(self, X_train, y_train):
+    def initialize_before_train(self, x_train, y_train):
 
         if self.Cb > 0:
             self.root.boss_data_store = BOSSDataStore(**self.params)
-            self.root.boss_data_store.initialize_before_train(self, X_train, y_train)
+            self.root.boss_data_store.initialize_before_train(self, x_train, y_train)
 
         self.root.splitters_initialized_before_train = True
 
-    def initialize_before_test(self, X_test, y_test):
+    def initialize_before_test(self, x_test, y_test):
 
         if self.Cb > 0:
-            self.root.boss_data_store.initialize_before_test(self, X_test, y_test)
+            self.root.boss_data_store.initialize_before_test(self, x_test, y_test)
 
         self.root.splitters_initialized_before_test = True
 
-    def fit(self, X_train, y_train):
+    def fit(self, x_train, y_train):
         self.node_gini = self.gini(y_train)
         if self.stop_building(y_train):
             self.label = self.make_label(y_train)
@@ -82,14 +85,14 @@ class ChiefTree:
             return
 
         if not self.root.splitters_initialized_before_train:
-            self.root.initialize_before_train(X_train, y_train)
+            self.root.initialize_before_train(x_train, y_train)
 
-        class_indices = self.get_class_indices(X_train, y_train)
-        self.generate_split_functions(X_train, y_train)
+        class_indices = self.get_class_indices(x_train, y_train)
+        self.generate_split_functions(x_train, y_train)
         candidate_splits = []
         for splitter in self.split_functions:
-            candidate_splits.append(splitter.split(X_train, y_train,
-                                                   class_indices = class_indices))
+            candidate_splits.append(splitter.split(x_train, y_train,
+                                                   class_indices=class_indices))
 
         best_splitter_index = self.argmin(candidate_splits, self.weighted_gini, y_train)
         self.best_split_function = self.split_functions[best_splitter_index]
@@ -99,7 +102,7 @@ class ChiefTree:
         for key, indices in splits.items():
             if len(indices) > 0:
                 self.children[key] = ChiefTree.as_child(self, **self.params)
-                self.children[key].fit(X_train.iloc[indices], y_train[indices])
+                self.children[key].fit(x_train.iloc[indices], y_train[indices])
             else:
                 print(f'no data in the split {key} : {len(indices)}')
 
@@ -111,7 +114,7 @@ class ChiefTree:
             return True
         elif self.parent is not None and self.node_gini == self.parent.node_gini:
             print(f'Warn no improvement to gini {self.depth}, {y_train.shape},' +
-                   f' {self.node_gini}, {self.parent.node_gini}, {np.unique(y_train, return_counts=True)[1] }, {self.make_label(y_train)}')
+                  f' {self.node_gini}, {self.parent.node_gini}, {np.unique(y_train, return_counts=True)[1]}, {self.make_label(y_train)}')
             return True
         elif self.max_depth != -1 and self.depth > self.max_depth:
             # debug
@@ -138,7 +141,7 @@ class ChiefTree:
 
         return split_indices
 
-    def generate_split_functions(self, X_train, y_train):
+    def generate_split_functions(self, x_train, y_train):
 
         for e in range(self.Ce):
             splitter = EDSplitter(self, self.params)
@@ -150,19 +153,19 @@ class ChiefTree:
 
         return None
 
-    def predict(self, X_test, y_test):
-        scores = np.zeros(X_test.shape[0])
+    def predict(self, x_test, y_test):
+        scores = np.zeros(x_test.shape[0])
 
         if not self.root.splitters_initialized_before_test:
-            self.root.initialize_before_test(X_test, y_test)
+            self.root.initialize_before_test(x_test, y_test)
 
-        for i in range(X_test.shape[0]):
-            query = X_test.iloc[i]
+        for i in range(x_test.shape[0]):
+            query = x_test.iloc[i]
             # start from root node
             node = self
             label = None
             while not node.leaf:
-                branch = node.best_split_function.predict(query,i)
+                branch = node.best_split_function.predict(query, i)
                 print(f'branch: {branch}, true label:  {y_test[i]}')
                 if branch in node.children:
                     node = node.children[branch]
@@ -213,37 +216,44 @@ class ChiefTree:
         return f'ChiefTree (leaf={self.leaf}, label={self.label}, children={len(self.children)}, depth={self.depth})'
 
 
-class ChiefForest:
+class ChiefForest(BaseClassifier):
 
     def __init__(self, **kwargs):
-
-        # read args
         self.kwargs = kwargs
         self.k = int(kwargs.get('k'))
-
-        # init
         self.trees = []
+
         for i in range(self.k):
             _t = ChiefTree(**kwargs)
             self.trees.append(_t)
 
-    def fit(self, X_train, y_train):
-
+    def fit(self, x_train, y_train):
         for i, _t in enumerate(self.trees):
-            print(f'{i}.', end ="")
-            _t.fit(X_train, y_train)
+            print(f'{i}.', end="")
+            _t.fit(x_train, y_train)
         print('')
 
         return self
 
-    def predict(self, X_test, y_test):
+    def predict(self, x_test, y_test):
         scores = [None] * len(self.trees)
         for i, _t in enumerate(self.trees):
-            print(f'{i}.', end ="")
-            scores[i] = _t.predict(X_test, y_test)
+            print(f'{i}.', end="")
+            scores[i] = _t.predict(x_test, y_test)
         print('')
+        ensemble_pred = self.majority_vote(scores)
+        return ensemble_pred
 
-        return scores
+    # TODO quick and hacky -- will redo later
+    def majority_vote(self, score, save=False, file_prefix='forest.score.csv'):
+        df = pd.DataFrame(score)
+        if save:
+            df.T.to_csv(file_prefix + ".score.csv")
+        # display(df)
+        # take a majority vote and randomly select from ties
+        # predictions = df.T # for series
+        y_pred = df.mode().fillna(method='ffill').sample(1)
+        return y_pred.T
 
     def __repr__(self):
         return f'\n------------------------ChiefForest (k={self.k})----------------------'

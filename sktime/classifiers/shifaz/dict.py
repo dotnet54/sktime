@@ -22,9 +22,9 @@ class BOSSDataStore:
         self.train_boss_transforms = {}
         self.test_boss_transforms = {}
 
-    def initialize_before_train(self, tree, X_train, y_train):
+    def initialize_before_train(self, tree, x_train, y_train):
         print('initializeBeforeTrain BOSSplitter')
-        series_length = X_train.iloc[0].iloc[0].shape[0]
+        series_length = x_train.iloc[0].iloc[0].shape[0]
         print(series_length)
         self.possible_boss_params = self.get_boss_params(series_length)
         self.usable_num_boss_transformations_usable = min(len(self.possible_boss_params),
@@ -36,9 +36,9 @@ class BOSSDataStore:
 
         for param in self.rand_boss_transfroms_used:
             sfa = SFA.SFA(*param)
-            sfa.fit(X_train)
-            X_train_boss = sfa.transform(X_train)
-            self.train_boss_transforms[param] = X_train_boss
+            sfa.fit(x_train)
+            x_train_boss = sfa.transform(x_train)
+            self.train_boss_transforms[param] = x_train_boss
             self.sfa_transforms[param] = sfa
 
 
@@ -54,12 +54,12 @@ class BOSSDataStore:
 
         return params
 
-    def initialize_before_test(self, tree, X_test, y_test):
+    def initialize_before_test(self, tree, x_test, y_test):
         print('initializeBeforeTest BOSSplitter')
         # sfa = SFA.SFA(*self.selected_random_boss_transformation)
-        # sfa.fit(X_test)
-        # X_test_boss = sfa.transform(X_test)
-        # self.test_boss_transforms[param] = X_test_boss
+        # sfa.fit(x_test)
+        # x_test_boss = sfa.transform(x_test)
+        # self.test_boss_transforms[param] = x_test_boss
 
 
 class BOSSplitter:
@@ -73,21 +73,21 @@ class BOSSplitter:
         self.exemplars = {}
         self._exemplar_indices = []
 
-    def split(self, X_train, y_train, **extra_data):
-        X_train_indices = X_train.index.values.tolist()
+    def split(self, x_train, y_train, **extra_data):
+        x_train_indices = x_train.index.values.tolist()
 
         # select one transform
         _keys = list(self.boss_data_store.train_boss_transforms.keys())
         self.selected_random_boss_transformation = random.choices(_keys, k=1)[0]
         self.random_boss_transformed_dataset = self.boss_data_store.train_boss_transforms[self.selected_random_boss_transformation]
-        X_train_transformed = self.random_boss_transformed_dataset.iloc[X_train_indices]
+        x_train_transformed = self.random_boss_transformed_dataset.iloc[x_train_indices]
         self.transformer = self.boss_data_store.sfa_transforms[self.selected_random_boss_transformation]
 
         cls_indices = extra_data['class_indices']
         for cls in cls_indices:
             exemplar_index =  int(np.random.choice(cls_indices[cls][0], 1))
             self._exemplar_indices.append(exemplar_index)
-            self.exemplars[int(cls)] = X_train_transformed.iloc[exemplar_index]
+            self.exemplars[int(cls)] = x_train_transformed.iloc[exemplar_index]
 
         print(f'exemplars: {self._exemplar_indices}')
         #partition based on similarity to the exemplars
@@ -95,10 +95,10 @@ class BOSSplitter:
         splits = {}
         min_distance = np.inf
 
-        for i in range(X_train_transformed.shape[0]):
+        for i in range(x_train_transformed.shape[0]):
             for j in self.exemplars:
                 e = self.exemplars[j]
-                s = X_train_transformed.iloc[i]
+                s = x_train_transformed.iloc[i]
                 distances[j] =  self.measure(s, e)
                 if (distances[j] <= min_distance):
                     min_distance = distances[j]

@@ -1,5 +1,4 @@
 from random import random
-
 import numpy as np
 from scipy import stats
 
@@ -16,8 +15,9 @@ class EDSplitter:
         self.tree = tree
         self.params = params
         self.enabled_measures = [
-            self.euclidean, self.dtw, self.ddtw, self.wdtw, self.wddtw,
-            self.lcss, self.msm, self.twe, self.erp
+            self.euclidean,
+            # self.dtw, self.ddtw, self.wdtw, self.wddtw,
+            # self.lcss, self.msm, self.twe, self.erp
         ]
         self.distance_measure = None
         self.measure_params = None
@@ -27,10 +27,10 @@ class EDSplitter:
     def init_data(self):
         print('init data')
 
-    def split(self, X_train, y_train, **extra_data):
+    def split(self, x_train, y_train, **extra_data):
 
         # select a random measure and initialize it
-        self.distance_measure = np.random.choice(self.enabled_measures)(X=X_train)
+        self.distance_measure = np.random.choice(self.enabled_measures)(X=x_train)
         # select a random param
         self.measure_params = self.get_random_parammeters(self.distance_measure)
 
@@ -39,7 +39,7 @@ class EDSplitter:
         for cls in cls_indices:
             exemplar_index = int(np.random.choice(cls_indices[cls][0], 1))
             self._exemplar_indices.append(exemplar_index)
-            self.exemplars[int(cls)] = X_train.iloc[exemplar_index]
+            self.exemplars[int(cls)] = x_train.iloc[exemplar_index]
 
         print(f'exemplars: {self._exemplar_indices}')
         # partition based on similarity to the exemplars
@@ -47,10 +47,10 @@ class EDSplitter:
         splits = {}
         min_distance = np.inf
 
-        for i in range(X_train.shape[0]):
+        for i in range(x_train.shape[0]):
             for j in self.exemplars:
                 e = self.exemplars[j]
-                s = X_train.iloc[i]
+                s = x_train.iloc[i]
                 distances[j] = self.distance_measure['measure'](s, e, **self.measure_params)
                 if distances[j] <= min_distance:
                     min_distance = distances[j]
@@ -69,7 +69,7 @@ class EDSplitter:
             e = self.exemplars[j]
             print(f'e {e[0][0]} --> q {query[0][0]}')
             distances[j] = self.distance_measure['measure'](query, e, **self.measure_params)
-            if (distances[j] <= min_distance):
+            if distances[j] <= min_distance:
                 min_distance = distances[j]
                 nearest_e = j
         print(distances)

@@ -14,13 +14,13 @@ from sktime.transformers.summarise import DerivativeSlopeTransformer
 
 def main():
     dataset_name = 'Coffee'
-    X_train, y_train, X_test, y_test = load_dataset(dataset_name)
+    x_train, y_train, x_test, y_test = load_dataset(dataset_name)
     y_train = y_train.astype(int)
     y_test = y_test.astype(int)
-    print(f'Train: {X_train.shape}, Test: {X_test.shape}')
+    print(f'Train: {x_train.shape}, Test: {x_test.shape}')
 
-    # test_euclidean(X_train, dataset_name = dataset_name, type = 'train')
-    test_ddtw(X_train, dataset_name = dataset_name, type = 'train')
+    # test_euclidean(x_train, dataset_name = dataset_name, type = 'train')
+    test_ddtw(x_train, dataset_name = dataset_name, type = 'train')
 
 def test_euclidean(dataset, **params):
     measure = EDSplitter.euclidean
