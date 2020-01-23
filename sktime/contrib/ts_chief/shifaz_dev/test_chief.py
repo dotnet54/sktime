@@ -1,7 +1,7 @@
 from sklearn import datasets
 
-from sktime.classifiers.shifaz.tschief import ChiefTree,ChiefForest
-from sktime.classifiers.shifaz.test import *
+from sktime.contrib.ts_chief.tschief import ChiefForest
+from sktime.contrib.ts_chief.shifaz_dev.test import *
 from sklearn.metrics import accuracy_score
 
 
@@ -29,10 +29,7 @@ def test_chief():
 test_chief()
 
 def test_RF():
-    from sklearn.model_selection import cross_val_score
-    from sklearn.datasets import make_blobs
     from sklearn.ensemble import RandomForestClassifier
-    from sklearn.ensemble import ExtraTreesClassifier
     from sklearn.tree import DecisionTreeClassifier
     from sklearn.neighbors import KNeighborsClassifier
 

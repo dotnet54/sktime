@@ -2,15 +2,12 @@
 import pandas as pd
 import numpy as np
 
-from sktime.classifiers.shifaz.test import load_dataset
-from sktime.classifiers.shifaz.similarity import EDSplitter
+from sktime.contrib.ts_chief.shifaz_dev.test import load_dataset
+from sktime.contrib.ts_chief.similarity import EDSplitter
 from sktime.classifiers.distance_based import proximity_forest
-from sktime.classifiers.distance_based import elastic_ensemble
-from sktime.distances import elastic
 from sktime.distances import elastic_cython
 from sktime.utils import dataset_properties
-from sktime.utils.data_container import tabularise
-from sktime.transformers.summarise import DerivativeSlopeTransformer
+
 
 def main():
     dataset_name = 'Coffee'

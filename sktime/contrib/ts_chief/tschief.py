@@ -1,15 +1,13 @@
 # %%
-import random
 from math import inf
 
 import numpy as np
 import pandas as pd
 from scipy import stats
 
-from sklearn.linear_model import RidgeClassifierCV
-from sktime.classifiers.shifaz.similarity import EDSplitter
-from sktime.classifiers.shifaz.dict import BOSSplitter, BOSSDataStore
-from sktime.classifiers.shifaz.interval import RISESplitter
+from sktime.contrib.ts_chief.similarity import EDSplitter
+from sktime.contrib.ts_chief.dict import BOSSplitter, BOSSDataStore
+from sktime.contrib.ts_chief.interval import RISESplitter
 
 from sktime.classifiers.base import BaseClassifier
 
