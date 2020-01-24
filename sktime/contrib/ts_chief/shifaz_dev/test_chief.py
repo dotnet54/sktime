@@ -1,6 +1,6 @@
 from sklearn import datasets
 
-from sktime.contrib.ts_chief.tschief import ChiefForest
+from sktime.contrib.ts_chief.tschief import TSChiefForest
 from sktime.contrib.ts_chief.shifaz_dev.test import *
 from sklearn.metrics import accuracy_score
 
@@ -11,16 +11,12 @@ def test_chief():
     y_test = y_test.astype(int)
     print(f'Train: {x_train.shape}, Test: {x_test.shape}')
 
-    params = {
-        'k': 1,
-        'Ce': 0,
-        'Cb': 0,
-        'Cr': 0,
-    }
-    # model = ChiefTree(**params)
-    model = ChiefForest(**params)
+    model = TSChiefForest(num_trees=2,
+                          num_similarity_candidate_splits=3,
+                          num_dictionary_candidate_splits=0,
+                          num_interval_candidate_splits=0)
     model.fit(x_train, y_train)
-    y_pred = model.predict(x_test, y_test)
+    y_pred = model.predict(x_test, y=y_test)
     score = accuracy_score(y_test, y_pred)
     print(f'Accuracy: {score}')
 

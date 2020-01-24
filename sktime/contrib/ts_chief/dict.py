@@ -54,7 +54,7 @@ class BOSSDataStore:
 
         return params
 
-    def initialize_before_test(self, tree, x_test, y_test):
+    def initialize_before_test(self, tree, x_test):
         print('initializeBeforeTest BOSSplitter')
         # sfa = SFA.SFA(*self.selected_random_boss_transformation)
         # sfa.fit(x_test)

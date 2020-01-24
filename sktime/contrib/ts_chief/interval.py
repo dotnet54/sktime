@@ -127,8 +127,20 @@ class RISESplitter:
         return X_transformed
 
     def pacf(self, X, interval):
-        # TODO
-        return X
+        def _pacf(x, interval, maxlag = 1):
+            # TODO
+            return x
+
+        if isinstance(X, pd.Dataframe):
+            xt =[]
+            for i in range(0, X.shape[0]):
+                x = X.iloc[i]
+                xt.append(_pacf(x, interval))
+            X_transformed = pd.DataFrame(xt)
+        else:
+            X_transformed = pd.DataFrame(_pacf(X, interval))
+
+        return X_transformed
 
     def ps(self, X, interval):
 
