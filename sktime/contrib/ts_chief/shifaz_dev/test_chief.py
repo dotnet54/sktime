@@ -6,15 +6,24 @@ from sklearn.metrics import accuracy_score
 
 
 def test_chief():
+    dataset_name = 'Coffee'
+    # dataset_name = 'ItalyPowerDemand'
+
     x_train, y_train, x_test, y_test = load_dataset('Coffee')
     y_train = y_train.astype(int)
     y_test = y_test.astype(int)
-    print(f'Train: {x_train.shape}, Test: {x_test.shape}')
+    print(f'{dataset_name}:: Train: {x_train.shape}, Test: {x_test.shape}, Classes {np.unique(y_train)}')
 
-    model = TSChiefForest(num_trees=2,
-                          num_similarity_candidate_splits=3,
+    debug_info = {
+        'level': 1
+    }
+
+    model = TSChiefForest(num_trees=10,
+                          num_similarity_candidate_splits=0,
                           num_dictionary_candidate_splits=0,
-                          num_interval_candidate_splits=0)
+                          num_interval_candidate_splits=3,
+                          boss_max_num_transformations=50,
+                          verbosity=2, debug_info=debug_info)
     model.fit(x_train, y_train)
     y_pred = model.predict(x_test, y=y_test)
     score = accuracy_score(y_test, y_pred)

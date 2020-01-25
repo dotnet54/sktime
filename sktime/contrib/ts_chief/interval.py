@@ -12,43 +12,37 @@ from statsmodels.tsa.ar_model import AR
 
 class RISESplitter:
 
-    def __init__(self, tree,
+    def __init__(self, node, tree,
                  random_state=None,
                  min_interval=16,
                  acf_lag=100,
-                 acf_min_values=4,
-                 num_candidate_splits=1):
+                 acf_min_values=4,):
         self.tree = tree
         # TODO replace this with BestSplitter class from sklearn
         self.base_splitter = DecisionTreeClassifier
         self.random_state = random_state
-        random.seed(random_state)
+        # random.seed(random_state)  # TODO
         self.min_interval = min_interval
         self.acf_lag = acf_lag
         self.acf_min_values = acf_min_values
-        self.num_candidate_splits = num_candidate_splits
+
         # These are all set in fit
         self.n_classes = 0
-        self.series_length = 0
         self.classifiers = []
         self.intervals = []
         self.lags = []
         self.classes_ = []
+        self.split_attribute = None
+        self.split_threshold = None
 
-    def init_data(self):
-        print('init data')
-
-    def split(self, X, y, **extra_data):
-        n_instances, self.series_length = X.shape
-        splits = []
+    def split(self, X, y, class_indices):
+        series_length = X.iloc[0].iloc[0].shape[0]
 
         num_attributes_generated = 0
-        i = 0
-        min_length = 10
-        max_length = self.series_length
         sub_features = []
-        while num_attributes_generated <= self.num_candidate_splits:
-            interval = self.generate_n_random_intervals(min_length, max_length, 1)[0]
+        i = 0
+        while num_attributes_generated <= self.tree.num_interval_candidate_splits:
+            interval = self.generate_n_random_intervals(self.min_interval, series_length, 1)[0]
             if i % 4 == 0:
                 sub_feature = self.ar(X, interval)
             elif i % 4 == 1:
@@ -88,6 +82,15 @@ class RISESplitter:
         branch = self.splitter.predict(query_transformed)
 
         return branch
+
+    # TODO from segment class
+    def generate_n_random_intervals(self, min_length, series_length, n_intervals=1):
+        starts = np.random.randint(series_length - min_length + 1, size=n_intervals)
+        if n_intervals == 1:
+            starts = [starts]  # make it an iterable
+        ends = [start + np.random.randint(min_length, series_length - start + 1) for start in starts]
+        return np.column_stack([starts, ends])
+
 
     def ar(self, X, interval, maxlag=1):
 

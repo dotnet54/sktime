@@ -26,25 +26,39 @@ class TSChiefForest(BaseClassifier):
                  num_similarity_candidate_splits=1,
                  num_dictionary_candidate_splits=0,
                  num_interval_candidate_splits=0,
+                 boss_max_num_transformations=10,
                  verbosity=1,
-                 **kwargs):
+                 **debug_info):
         # params
-        self.kwargs = kwargs  # TODO remove
-        self.num_trees = num_trees
+        self.debug_info = debug_info  # TODO remove
         self.verbosity = verbosity
+        self.num_trees = num_trees
+        self.num_similarity_candidate_splits = num_similarity_candidate_splits
+        self.num_dictionary_candidate_splits = num_dictionary_candidate_splits
+        self.num_interval_candidate_splits = num_interval_candidate_splits
+        self.splitters_initialized_before_train = False
+        self.splitters_initialized_before_test = False
+        self.boss_max_num_transformations = boss_max_num_transformations
+        self.boss_data_store = None
 
         # initialize
-        self.trees = []
-
         # args = inspect.getfullargspec(self.__init__) TODO
+        self.trees = [None] * self.num_trees
         for i in range(self.num_trees):
-            tree = TSChiefTree(num_similarity_candidate_splits=num_similarity_candidate_splits,
-                               num_dictionary_candidate_splits=num_dictionary_candidate_splits,
-                               num_interval_candidate_splits=num_interval_candidate_splits)
-            self.trees.append(tree)
+            self.trees[i] = TSChiefTree(ensemble=self,
+                                        verbosity=verbosity,
+                                        num_similarity_candidate_splits=num_similarity_candidate_splits,
+                                        num_dictionary_candidate_splits=num_dictionary_candidate_splits,
+                                        num_interval_candidate_splits=num_interval_candidate_splits,
+                                        boss_max_num_transformations=boss_max_num_transformations)
 
     def fit(self, X, y, input_checks=True):
         # TODO input_checks
+
+        if not self.splitters_initialized_before_train and self.num_dictionary_candidate_splits > 0:
+            self.boss_data_store = BOSSDataStore(self, self.boss_max_num_transformations)
+            self.boss_data_store.initialize_before_train(X)
+
         for i, tree in enumerate(self.trees):
             if self.verbosity > 0:
                 print(f'{i}.', end="")
@@ -98,6 +112,7 @@ class TSChiefTree(BaseClassifier):
                  num_similarity_candidate_splits=1,
                  num_dictionary_candidate_splits=0,
                  num_interval_candidate_splits=0,
+                 boss_max_num_transformations=1000,
                  verbosity=0,
                  ensemble=None):
 
@@ -108,6 +123,7 @@ class TSChiefTree(BaseClassifier):
         self.num_similarity_candidate_splits = num_similarity_candidate_splits
         self.num_dictionary_candidate_splits = num_dictionary_candidate_splits
         self.num_interval_candidate_splits = num_interval_candidate_splits
+        self.boss_max_num_transformations = boss_max_num_transformations
         # pointer to the ensemble or forest if this tree is part of an ensemble,
         # some initializations may be delegated a forest level if this tree is part of an ensemble
         self.ensemble = ensemble
@@ -116,16 +132,12 @@ class TSChiefTree(BaseClassifier):
         self.children = {}
         self.split_functions = []
         self.best_split_function = None
-        self.best_split = None
-        self.leaf = False
-        self.label = None
-        self.parent = None
-        self.root = self
-        self.depth = 0
+        self.best_split = None  # holds the indicies of the splits
+        self.root = None
         self.splitters_initialized_before_train = False
         self.splitters_initialized_before_test = False
-        self.node_gini = None
         self.boss_data_store = None
+        self.is_fitted = False
 
         # development
         self.node_count = 0
@@ -135,21 +147,28 @@ class TSChiefTree(BaseClassifier):
         # TODO input_checks
 
         if not self.splitters_initialized_before_train and self.num_dictionary_candidate_splits > 0:
-            self.boss_data_store = BOSSDataStore()
-            self.boss_data_store.initialize_before_train(self, X, y)
+            if self.ensemble is None:
+                # if this tree is on its own so do some initialization work
+                self.boss_data_store = BOSSDataStore(self, self.boss_max_num_transformations)
+                self.boss_data_store.initialize_before_train(X)
+            else:
+                # if this tree is part of a forest, assume that the forest class did the initialization
+                self.boss_data_store = self.ensemble.boss_data_store
 
         self.splitters_initialized_before_train = True
 
         self.root = TSChiefNode(tree=self, parent_node=None)
         self.root.fit(X, y)
 
+        self.is_fitted = True
         return self
 
     def predict(self, X, input_checks=True, **debug):
         # TODO input_checks
+        # TODO check is_fitted
 
         if not self.splitters_initialized_before_test and self.num_dictionary_candidate_splits > 0:
-            self.boss_data_store.initialize_before_test(self, X)
+            self.boss_data_store.initialize_before_test(X)
 
         self.splitters_initialized_before_test = True
         scores = np.zeros(X.shape[0])
@@ -159,9 +178,10 @@ class TSChiefTree(BaseClassifier):
             node = self.root
             label = None
             while not node.leaf:
-                branch = node.best_split_function.predict(query, i)
+                branch, _ = node.best_split_function.predict(query, i)
                 if self.verbosity > 1:
-                    print(f'branch: {branch}, true label:  {debug["y"[i]]}')
+                    if branch != debug["y"][i]:
+                        print(f'branch: {branch}, true label:  {debug["y"][i]}')
                 if branch in node.children:
                     node = node.children[branch]
                 else:
@@ -194,6 +214,7 @@ class TSChiefNode:
         self.leaf = False
         self.label = None
         self.node_gini = None  # gini of the data that reached this node
+        self.num_instances_reached = 0  # refer to stopping criteria
         self.class_distribution = None  # TODO class distribution of the data that reached this node
         self.class_indices = None  # indices of items belonging to each class
 
@@ -202,7 +223,10 @@ class TSChiefNode:
         else:
             self.depth = self.parent.depth + 1
 
+        self.branch_ = None  # TODO debug only
+
     def fit(self, X, y):
+        self.num_instances_reached = y.shape[0]
         self.node_gini = self._gini(y)
         self.class_indices = self._get_class_indices(X, y)
 
@@ -220,27 +244,29 @@ class TSChiefNode:
             self.split_functions.append(boss_splitter)
 
         if self.tree.num_interval_candidate_splits > 0:
-            rise_splitter = RISESplitter(self.self.tree)
+            rise_splitter = RISESplitter(self, self.tree)
             self.split_functions.append(rise_splitter)
 
-        candidate_splits = []
+        top_candidate_splits = []
         for splitter in self.split_functions:
-            candidate_splits.append(splitter.split(X, y, class_indices=self.class_indices))
+            candidate_split = splitter.split(X, y, class_indices=self.class_indices)
+            top_candidate_splits.append(candidate_split)
 
-        best_splitter_index = self._argmin(candidate_splits, self.weighted_gini, y)
+        best_splitter_index = self._argmin(top_candidate_splits, self._weighted_gini, y)
         self.best_split_function = self.split_functions[best_splitter_index]
 
         # TODO improve for memory, currently stores the top best splits for each type of splitter in memory
-        splits = candidate_splits[best_splitter_index]
+        best_split = top_candidate_splits[best_splitter_index]
 
-        for key, indices in splits.items():
-            if len(indices) > 0:
-                self.children[key] = TSChiefTree.as_child(self, **self.params)
-                self.children[key].fit(X.iloc[indices], y[indices])
+        for split_key, split_indices in best_split.items():
+            if len(split_indices) > 0:
+                self.children[split_key] = TSChiefNode(tree=self.tree, parent_node=self)
+                self.children[split_key].branch_ = split_key  # TODO debug only
+                self.children[split_key].fit(X.iloc[split_indices], y[split_indices])
             else:
                 # TODO debug only
                 if self.tree.verbosity > 1:
-                    print(f'no data in the split {key} : {len(indices)}')
+                    print(f'no data in the split {split_key} : {len(split_indices)}')
 
         return self
 
@@ -248,10 +274,18 @@ class TSChiefNode:
 
         if self.node_gini <= self.tree.lowest_gini:
             return True
-        elif self.parent is not None and self.node_gini == self.parent.node_gini:
+        elif self.parent is not None \
+                and self.num_instances_reached == self.parent.num_instances_reached \
+                and self.node_gini == self.parent.node_gini:
             if self.tree.verbosity > 1:
-                print(f'no improvement to gini {self.depth}, {y.shape}, {self.node_gini}, {self.parent.node_gini}, '
-                      f'{np.unique(y, return_counts=True)[1]}, {self.make_label(y)}')
+                print(f'Warn: no improvement to gini '
+                      f'depth: {self.depth}, '
+                      f'num_instances_reached: {self.num_instances_reached}, '
+                      f'parent.num_instances_reached: {self.parent.num_instances_reached}, '
+                      f'node_gini: {self.node_gini}, '
+                      f'parent_gini: {self.parent.node_gini}, '
+                      f'classes: {np.unique(y, return_counts=True)[1]}, '
+                      f'label: {self._make_label(y)}')
             return True
         elif self.depth > self.tree.max_depth:
             # TODO debug only

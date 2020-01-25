@@ -11,25 +11,28 @@ from sktime.utils import dataset_properties
 
 class EDSplitter:
 
-    def __init__(self, node, tree):
+    def __init__(self, node, tree, random_state=None):
         self.node = node
         self.tree = tree
         self.enabled_measures = [
             self.euclidean,
-            # self.dtw, self.ddtw, self.wdtw, self.wddtw,
-            # self.lcss, self.msm, self.twe, self.erp
+            self.dtw, self.ddtw, self.wdtw, self.wddtw,
+            self.lcss, self.msm, self.twe, self.erp
         ]
         self.similarity_measure = None
         self.measure_params = None
         self.exemplars = {}
-        self._exemplar_indices = []
+        self.exemplar_indices = {}  # storing just to speed up somethings
+        self.random_state = random_state
+        # random.seed(random_state) # TODO
 
-    def split(self, x_train, y_train, **extra_data):
+    def split(self, x_train, y_train, class_indices):
         candidate_splits_gini = [None] * self.tree.num_similarity_candidate_splits  # keeping all gini for statistics
         min_gini = np.inf
         best_split = None
 
-        for k in range(0, self.tree.num_similarity_candidate_splits):
+        for candidate_split_index in range(0, self.tree.num_similarity_candidate_splits):
+            current_split = {}
 
             # select a random measure and initialize it
             self.similarity_measure = np.random.choice(self.enabled_measures)(X=x_train)
@@ -37,36 +40,41 @@ class EDSplitter:
             self.measure_params = self.get_random_parammeters(self.similarity_measure)
 
             # select random exemplars
-            cls_indices = extra_data['class_indices']
-            for cls in cls_indices:
-                exemplar_index = int(np.random.choice(cls_indices[cls][0], 1))
-                self._exemplar_indices.append(exemplar_index)
-                self.exemplars[int(cls)] = x_train.iloc[exemplar_index]
+            for cls in class_indices:
+                _exemplar_index = int(np.random.choice(class_indices[cls][0], 1))
+                self.exemplar_indices[int(cls)] = _exemplar_index
+                # TODO TEST make a deep copy, make sure that there is no pointer
+                #  to x_train so that it can be garbage collected
+                self.exemplars[int(cls)] = x_train.iloc[_exemplar_index].copy(deep=True)
+                current_split[cls] = []
 
-            print(f'exemplars: {self._exemplar_indices}')
             # partition based on similarity to the exemplars
-            distances = {}
-            current_split = {}
-            min_distance = np.inf
-
+            nearest_class = None
             for i in range(x_train.shape[0]):
-                for j in self.exemplars:
-                    e = self.exemplars[j]
-                    s = x_train.iloc[i]
-                    # TODO skip self distance
-                    distances[j] = self.similarity_measure['measure'](s, e, **self.measure_params)
-                    if distances[j] <= min_distance:
-                        min_distance = distances[j]
-                        nearest_e = j
-                    if nearest_e not in current_split.keys():
-                        current_split[nearest_e] = []
-                # print(distances)
-                current_split[nearest_e].append(i)
+                # dont need to store all distances, just storing for debugging
+                distances = [None] * len(self.exemplars)
+                min_distance = np.inf
+                for exemplar_class, exemplar in self.exemplars.items():
+                    series = x_train.iloc[i]
+                    # using exemplar_indices to speed up the equality check
+                    if i == self.exemplar_indices[exemplar_class]:
+                        nearest_class = exemplar_class
+                        break
+                    else:
+                        distances[exemplar_class] = self.similarity_measure['measure'](series, exemplar, **self.measure_params)
 
-            candidate_splits_gini[k] = self.node._weighted_gini(current_split, y_train)
+                    # TODO tie break randomly, important for measures like LCSS
+                    #  where output can be often 0 in some cases
+                    if distances[exemplar_class] <= min_distance:
+                        min_distance = distances[exemplar_class]
+                        nearest_class = exemplar_class
+                # print(distances)
+                current_split[nearest_class].append(i)
+
+            candidate_splits_gini[candidate_split_index] = self.node._weighted_gini(current_split, y_train)
             # TODO tie break randomly
-            if candidate_splits_gini[k] <= min_gini:
-                min_gini = candidate_splits_gini[k]
+            if candidate_splits_gini[candidate_split_index] <= min_gini:
+                min_gini = candidate_splits_gini[candidate_split_index]
                 best_split = current_split
 
         return best_split
@@ -74,15 +82,15 @@ class EDSplitter:
     def predict(self, query, qi):
         distances = {}
         min_distance = np.inf
-        for j in self.exemplars:
-            e = self.exemplars[j]
-            print(f'e {e[0][0]} --> q {query[0][0]}')
-            distances[j] = self.similarity_measure['measure'](query, e, **self.measure_params)
-            if distances[j] <= min_distance:
-                min_distance = distances[j]
-                nearest_e = j
-        print(distances)
-        return nearest_e
+        nearest_class = None
+        for exemplar_class, exemplar in self.exemplars.items():
+            distances[exemplar_class] = self.similarity_measure['measure'](query, exemplar, **self.measure_params)
+            # TODO tie break randomly
+            if distances[exemplar_class] <= min_distance:
+                min_distance = distances[exemplar_class]
+                nearest_class = exemplar_class
+        # print(distances)
+        return nearest_class, distances
 
     def euclidean(self, **kwargs):
 
