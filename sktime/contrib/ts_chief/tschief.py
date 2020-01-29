@@ -228,7 +228,7 @@ class TSChiefNode:
     def fit(self, X, y):
         self.num_instances_reached = y.shape[0]
         self.node_gini = self._gini(y)
-        self.class_indices = self._get_class_indices(X, y)
+        self.class_indices = self.get_class_indices(y)
 
         if self._check_stop_conditions(y):
             self.label = self._make_label(y)
@@ -303,7 +303,7 @@ class TSChiefNode:
             print(f'new leaf {self.depth}, {self.node_gini}, {label}, {y_train.shape}, {y_train}')
         return label
 
-    def _get_class_indices(self, X, y):
+    def get_class_indices(self, y):
         split_indices = {}
 
         for cls in np.unique(y):

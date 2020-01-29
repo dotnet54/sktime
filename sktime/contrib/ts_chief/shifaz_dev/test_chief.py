@@ -21,7 +21,7 @@ def test_chief():
     model = TSChiefForest(num_trees=10,
                           num_similarity_candidate_splits=0,
                           num_dictionary_candidate_splits=0,
-                          num_interval_candidate_splits=3,
+                          num_interval_candidate_splits=5,
                           boss_max_num_transformations=50,
                           verbosity=2, debug_info=debug_info)
     model.fit(x_train, y_train)
