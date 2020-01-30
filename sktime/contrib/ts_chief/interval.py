@@ -17,7 +17,7 @@ class RISESplitter:
                  random_state=None,
                  min_interval=16,
                  acf_lag=100,
-                 acf_min_values=4,):
+                 acf_min_values=4, ):
         self.tree = tree
         self.node = node
         self.random_state = random_state
@@ -25,7 +25,11 @@ class RISESplitter:
         self.min_interval = min_interval
         self.acf_lag = acf_lag
         self.acf_min_values = acf_min_values
-        self.maxlag = 16 #  TODO
+        self.maxlag = 16  # TODO
+        # self.enabled_transform_functions = [self.ar, self.acf, self.pacf, self.ps]
+        self.enabled_transform_functions = [self.ar, self.acf, self.acf, self.ps]
+        self.transform = None
+        self.transform_params = None
 
         # These are all set in fit
         self.n_classes = 0
@@ -36,12 +40,145 @@ class RISESplitter:
         self.split_attribute = None
         self.split_threshold = None
 
-        #init base splitter
+        # init base splitter
         # TODO replace this with BestSplitter class from sklearn
         # Decision Stump which samples random features
-        self.decision_stump = DecisionTreeClassifier(max_depth=1, max_features=self.tree.num_interval_candidate_splits)
+        self.decision_stump = None
+        self.n_features = 0
 
     def split(self, X, y, class_indices):
+        series_length = X.iloc[0].iloc[0].shape[0]
+        candidate_splits_gini = [None] * self.tree.n_interval_candidate_splits  # keeping all gini for statistics
+        min_gini = np.inf
+        best_split = None
+        min_num_attribs_per_transform = int(self.tree.n_interval_candidate_splits / 4)
+        num_extra_attribs = int(self.tree.n_interval_candidate_splits % 4)  # TODO use these as well
+        num_iterations = 0
+        params = {
+            'maxlag': self.maxlag
+        }
+        for candidate_split_index, transform in enumerate(self.enabled_transform_functions):
+            intervals = []
+            num_attributes_generated = 0
+            total_num_attributes_generated = 0
+            all_features = []
+            while num_attributes_generated <= min_num_attribs_per_transform:
+                interval = self.generate_n_random_intervals(self.min_interval, series_length, 1)[0]
+                interval_features = transform(X, interval, **params)
+                intervals.append(interval)
+                num_attributes_generated = num_attributes_generated + interval_features.shape[1]
+                total_num_attributes_generated += num_attributes_generated
+                all_features.append(interval_features)
+
+            # combine all features
+            X_transformed = np.hstack(all_features)
+            splitter = DecisionTreeClassifier(max_depth=1, max_features=min_num_attribs_per_transform)
+            splitter.fit(X_transformed, y)
+            pred_y = splitter.predict(X_transformed)  # TODO training performance on a stump
+            current_split = self.node.get_class_indices(pred_y)
+            candidate_splits_gini[candidate_split_index] = self.node._weighted_gini(current_split, y)
+            # TODO tie break randomly
+            if candidate_splits_gini[candidate_split_index] <= min_gini:
+                min_gini = candidate_splits_gini[candidate_split_index]
+                best_split = current_split
+                self.decision_stump = splitter
+                self.intervals = intervals
+                self.transform = transform
+                self.transform_params = params
+                self.n_features = X_transformed.shape[1]
+
+        return best_split
+
+    def predict(self, query, qi):
+        interval_features = []
+        for interval in self.intervals:
+            interval_features.append(self.transform(query, interval, **self.transform_params))
+        query_transformed = np.hstack(interval_features).ravel()
+        query_transformed = query_transformed.reshape(1, -1)
+        branch = self.decision_stump.predict(query_transformed)[0]
+        return branch, None
+
+    # TODO from segment class
+    def generate_n_random_intervals(self, min_length, series_length, n_intervals=1):
+        starts = np.random.randint(series_length - min_length + 1, size=n_intervals)
+        if n_intervals == 1:
+            starts = [starts]  # make it an iterable
+        ends = [start + np.random.randint(min_length, series_length - start + 1) for start in starts]
+        return np.column_stack([starts, ends])
+
+    def ar(self, X, interval, maxlag=1):
+
+        def _ar(x, maxlag=1):
+            x = np.asarray(x).ravel()[0]
+            nlags = np.minimum(len(x) - 1, maxlag)
+            model = AR(endog=x)
+            return model.fit(maxlag=nlags).params.ravel()
+
+        if isinstance(X, pd.DataFrame):
+            xt = []
+            for i in range(0, X.shape[0]):
+                x = X.iloc[i]
+                xt.append(_ar(x, maxlag))
+            X_transformed = pd.DataFrame(xt)
+        else:
+            X_transformed = pd.DataFrame(_ar(X, maxlag))
+
+        return X_transformed
+
+    def acf(self, X, interval, maxlag=1):
+
+        def _acf(x, maxlag=1):
+            x = np.asarray(x).ravel()[0]
+            nlags = np.minimum(len(x) - 1, maxlag)
+            return acf(x, nlags=nlags).ravel()
+
+        if isinstance(X, pd.DataFrame):
+            xt = []
+            for i in range(0, X.shape[0]):
+                x = X.iloc[i]
+                xt.append(_acf(x, maxlag))
+            X_transformed = pd.DataFrame(xt)
+        else:
+            X_transformed = pd.DataFrame(_acf(X, maxlag))
+
+        return X_transformed
+
+    def pacf(self, X, interval):
+        def _pacf(x, maxlag=1):
+            # TODO
+            return x
+
+        if isinstance(X, pd.DataFrame):
+            xt = []
+            for i in range(0, X.shape[0]):
+                x = X.iloc[i]
+                xt.append(_pacf(x))
+            X_transformed = pd.DataFrame(xt)
+        else:
+            X_transformed = pd.DataFrame(_pacf(X))
+
+        return X_transformed
+
+    def ps(self, X, interval, **kwargs):
+
+        def _ps(x):
+            x = np.asarray(x).ravel()[0]
+            fft = np.fft.fft(x)
+            ps = fft.real * fft.real + fft.imag * fft.imag
+            return ps[:ps.shape[0] // 2].ravel()
+
+        if isinstance(X, pd.DataFrame):
+            xt = []
+            for i in range(0, X.shape[0]):
+                x = X.iloc[i]
+                xt.append(_ps(x))
+            X_transformed = pd.DataFrame(xt)
+        else:
+            X_transformed = pd.DataFrame(_ps(X))
+
+        return X_transformed
+
+    def split2(self, X, y, class_indices):
         series_length = X.iloc[0].iloc[0].shape[0]
 
         num_attributes_generated = 0
@@ -75,7 +212,7 @@ class RISESplitter:
 
         return splits
 
-    def predict(self, query, qi):
+    def predict2(self, query, qi):
 
         sub_features = []
         i = 0
@@ -95,87 +232,6 @@ class RISESplitter:
         branch = self.decision_stump.predict(query_transformed)[0]
 
         return branch, None
-
-    # TODO from segment class
-    def generate_n_random_intervals(self, min_length, series_length, n_intervals=1):
-        starts = np.random.randint(series_length - min_length + 1, size=n_intervals)
-        if n_intervals == 1:
-            starts = [starts]  # make it an iterable
-        ends = [start + np.random.randint(min_length, series_length - start + 1) for start in starts]
-        return np.column_stack([starts, ends])
-
-
-    def ar(self, X, interval, maxlag=1):
-
-        def _ar(x, interval, maxlag = 1):
-            x = np.asarray(x).ravel()[0]
-            nlags = np.minimum(len(x) - 1, maxlag)
-            model = AR(endog=x)
-            return model.fit(maxlag=nlags).params.ravel()
-
-        if isinstance(X, pd.DataFrame):
-            xt =[]
-            for i in range(0, X.shape[0]):
-                x = X.iloc[i]
-                xt.append(_ar(x, interval, maxlag))
-            X_transformed = pd.DataFrame(xt)
-        else:
-            X_transformed = pd.DataFrame(_ar(X, interval, maxlag))
-
-        return X_transformed
-
-    def acf(self, X, interval, maxlag=1):
-
-        def _acf(x, interval, maxlag = 1):
-            x = np.asarray(x).ravel()
-            nlags = np.minimum(len(x) - 1, maxlag)
-            return acf(x, nlags=nlags).ravel()
-
-        if isinstance(X, pd.DataFrame):
-            xt =[]
-            for i in range(0, X.shape[0]):
-                x = X.iloc[i]
-                xt.append(_acf(x, interval, maxlag))
-            X_transformed = pd.DataFrame(xt)
-        else:
-            X_transformed = pd.DataFrame(_acf(X, interval, maxlag))
-
-        return X_transformed
-
-    def pacf(self, X, interval):
-        def _pacf(x, interval, maxlag = 1):
-            # TODO
-            return x
-
-        if isinstance(X, pd.DataFrame):
-            xt =[]
-            for i in range(0, X.shape[0]):
-                x = X.iloc[i]
-                xt.append(_pacf(x, interval))
-            X_transformed = pd.DataFrame(xt)
-        else:
-            X_transformed = pd.DataFrame(_pacf(X, interval))
-
-        return X_transformed
-
-    def ps(self, X, interval):
-
-        def _ps(x, interval, maxlag = 1):
-            x = np.asarray(x).ravel()
-            fft = np.fft.fft(x)
-            ps = fft.real * fft.real + fft.imag * fft.imag
-            return ps[:ps.shape[0] // 2].ravel()
-
-        if isinstance(X, pd.DataFrame):
-            xt =[]
-            for i in range(0, X.shape[0]):
-                x = X.iloc[i]
-                xt.append(_ps(x, interval))
-            X_transformed = pd.DataFrame(xt)
-        else:
-            X_transformed = pd.DataFrame(_ps(X, interval))
-
-        return X_transformed
 
 
 def _ar_coefs(x, maxlag=100):

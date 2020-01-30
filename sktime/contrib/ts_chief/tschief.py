@@ -1,16 +1,19 @@
 # %%
-import inspect
-from math import inf
 
+from math import inf
 import numpy as np
 import pandas as pd
 from scipy import stats
+import warnings
+import inspect
+from copy import deepcopy
 
 from sktime.contrib.ts_chief.similarity import EDSplitter
 from sktime.contrib.ts_chief.dict import BOSSplitter, BOSSDataStore
 from sktime.contrib.ts_chief.interval import RISESplitter
-
 from sktime.classifiers.base import BaseClassifier
+from sktime.utils.validation.supervised import validate_X, validate_X_y
+from sklearn.utils.multiclass import class_distribution
 
 __author__ = "Ahmed Shifaz"
 __all__ = ["TSChiefForest", "TSChiefTree"]
@@ -18,45 +21,79 @@ __all__ = ["TSChiefForest", "TSChiefTree"]
 DEFAULT_LOWEST_GINI = 1e-7
 DEFAULT_MAX_DEPTH = np.inf
 
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+
 
 class TSChiefForest(BaseClassifier):
 
     def __init__(self, check_inputs=True,
-                 num_trees=1,
-                 num_similarity_candidate_splits=1,
-                 num_dictionary_candidate_splits=0,
-                 num_interval_candidate_splits=0,
-                 boss_max_num_transformations=10,
+                 random_state=None,
+                 n_threads=0,
+                 n_trees=100,
+                 n_similarity_candidate_splits=5,
+                 n_dictionary_candidate_splits=100,
+                 n_interval_candidate_splits=100,
+                 pf_similarity_measures=[],
+                 boss_max_n_transformations=1000,
+                 boss_min_window_length=10,
+                 boss_word_lengths=[6, 8, 10, 12, 14, 16],
+                 boss_norm_option=[True, False],
+                 boss_alphabet_size=4,
+                 rise_transforms=[],
+                 rise_min_interval_length=16,
+                 rise_max_lag=100,
+                 rise_acf_min_values=4,
                  verbosity=1,
                  **debug_info):
         # params
         self.debug_info = debug_info  # TODO remove
         self.verbosity = verbosity
-        self.num_trees = num_trees
-        self.num_similarity_candidate_splits = num_similarity_candidate_splits
-        self.num_dictionary_candidate_splits = num_dictionary_candidate_splits
-        self.num_interval_candidate_splits = num_interval_candidate_splits
+        self.n_trees = n_trees
+        self.n_similarity_candidate_splits = n_similarity_candidate_splits
+        self.n_dictionary_candidate_splits = n_dictionary_candidate_splits
+        self.n_interval_candidate_splits = n_interval_candidate_splits
         self.splitters_initialized_before_train = False
         self.splitters_initialized_before_test = False
-        self.boss_max_num_transformations = boss_max_num_transformations
+        self.boss_max_n_transformations = boss_max_n_transformations
         self.boss_data_store = None
 
         # initialize
         # args = inspect.getfullargspec(self.__init__) TODO
-        self.trees = [None] * self.num_trees
-        for i in range(self.num_trees):
+        self.series_length = 0
+        self.n_instances = 0
+        self.n_classes = 0
+        self.class_distribution = None
+        self.trees = [None] * self.n_trees
+        for i in range(self.n_trees):
             self.trees[i] = TSChiefTree(ensemble=self,
                                         verbosity=verbosity,
-                                        num_similarity_candidate_splits=num_similarity_candidate_splits,
-                                        num_dictionary_candidate_splits=num_dictionary_candidate_splits,
-                                        num_interval_candidate_splits=num_interval_candidate_splits,
-                                        boss_max_num_transformations=boss_max_num_transformations)
+                                        n_similarity_candidate_splits=n_similarity_candidate_splits,
+                                        n_dictionary_candidate_splits=n_dictionary_candidate_splits,
+                                        n_interval_candidate_splits=n_interval_candidate_splits,
+                                        boss_max_n_transformations=boss_max_n_transformations)
 
     def fit(self, X, y, input_checks=True):
-        # TODO input_checks
 
-        if not self.splitters_initialized_before_train and self.num_dictionary_candidate_splits > 0:
-            self.boss_data_store = BOSSDataStore(self, self.boss_max_num_transformations)
+        if input_checks:
+            # validate_X_y(X, y)
+            if isinstance(X, pd.DataFrame):
+                if X.shape[1] > 1:
+                    raise TypeError("TS-CHIEF cannot handle multivariate problems yet")
+                elif isinstance(X.iloc[0, 0], pd.Series):
+                    # X = np.asarray([a.values for a in X.iloc[:, 0]])  # TODO dont flattten
+                    pass
+                else:
+                    raise TypeError(
+                        "Input should either be a 2d numpy array, or a pandas dataframe with a single column of Series \
+                        objects (TS-CHIEF cannot yet handle multivariate problems")
+
+        self.n_instances, self.series_length = X.shape
+        self.n_classes = np.unique(y).shape[0]
+        self.class_distribution = class_distribution(np.asarray(y).reshape(-1, 1))[0][0]
+
+        if not self.splitters_initialized_before_train and self.n_dictionary_candidate_splits > 0:
+            self.boss_data_store = BOSSDataStore(self, self.boss_max_n_transformations)
             self.boss_data_store.initialize_before_train(X)
 
         for i, tree in enumerate(self.trees):
@@ -69,7 +106,24 @@ class TSChiefForest(BaseClassifier):
         return self
 
     def predict(self, X, input_checks=True, **debug):
-        # TODO input_checks
+        if input_checks:
+            # validate_X(X)
+            if isinstance(X, pd.DataFrame):
+                if X.shape[1] > 1:
+                    raise TypeError("TS-CHIEF cannot handle multivariate problems yet")
+                elif isinstance(X.iloc[0, 0], pd.Series):
+                    # X = np.asarray([a.values for a in X.iloc[:, 0]])  # TODO dont flattten
+                    pass
+                else:
+                    raise TypeError(
+                        "Input should either be a 2d numpy array, or a pandas dataframe with a single column of Series \
+                        objects (TS-CHIEF cannot yet handle multivariate problems")
+
+        n_test_instances, series_length = X.shape
+
+        if series_length != self.series_length:
+            raise TypeError("ERROR: number of attributes in the train data does not match to the test data")
+
         predictions = [None] * len(self.trees)
         for i, tree in enumerate(self.trees):
             if self.verbosity > 0:
@@ -96,7 +150,7 @@ class TSChiefForest(BaseClassifier):
         return y_pred.T
 
     def __repr__(self):
-        return f'TSChief-Forest: (k={self.num_trees})'
+        return f'TSChief-Forest: (k={self.n_trees})'
 
     def _setup_before_train(self, x_train, y_train, **kwargs):
         pass
@@ -109,10 +163,10 @@ class TSChiefTree(BaseClassifier):
 
     def __init__(self, check_inputs=True,
                  max_depth=DEFAULT_MAX_DEPTH, lowest_gini=DEFAULT_LOWEST_GINI,
-                 num_similarity_candidate_splits=1,
-                 num_dictionary_candidate_splits=0,
-                 num_interval_candidate_splits=0,
-                 boss_max_num_transformations=1000,
+                 n_similarity_candidate_splits=1,
+                 n_dictionary_candidate_splits=0,
+                 n_interval_candidate_splits=0,
+                 boss_max_n_transformations=1000,
                  verbosity=0,
                  ensemble=None):
 
@@ -120,10 +174,10 @@ class TSChiefTree(BaseClassifier):
         self.verbosity = verbosity
         self.max_depth = max_depth  # maximum depth of trees
         self.lowest_gini = lowest_gini  # gini at which a node is converted to a leaf
-        self.num_similarity_candidate_splits = num_similarity_candidate_splits
-        self.num_dictionary_candidate_splits = num_dictionary_candidate_splits
-        self.num_interval_candidate_splits = num_interval_candidate_splits
-        self.boss_max_num_transformations = boss_max_num_transformations
+        self.n_similarity_candidate_splits = n_similarity_candidate_splits
+        self.n_dictionary_candidate_splits = n_dictionary_candidate_splits
+        self.n_interval_candidate_splits = n_interval_candidate_splits
+        self.boss_max_n_transformations = boss_max_n_transformations
         # pointer to the ensemble or forest if this tree is part of an ensemble,
         # some initializations may be delegated a forest level if this tree is part of an ensemble
         self.ensemble = ensemble
@@ -146,10 +200,10 @@ class TSChiefTree(BaseClassifier):
     def fit(self, X, y, input_checks=True):
         # TODO input_checks
 
-        if not self.splitters_initialized_before_train and self.num_dictionary_candidate_splits > 0:
+        if not self.splitters_initialized_before_train and self.n_dictionary_candidate_splits > 0:
             if self.ensemble is None:
                 # if this tree is on its own so do some initialization work
-                self.boss_data_store = BOSSDataStore(self, self.boss_max_num_transformations)
+                self.boss_data_store = BOSSDataStore(self, self.boss_max_n_transformations)
                 self.boss_data_store.initialize_before_train(X)
             else:
                 # if this tree is part of a forest, assume that the forest class did the initialization
@@ -167,7 +221,7 @@ class TSChiefTree(BaseClassifier):
         # TODO input_checks
         # TODO check is_fitted
 
-        if not self.splitters_initialized_before_test and self.num_dictionary_candidate_splits > 0:
+        if not self.splitters_initialized_before_test and self.n_dictionary_candidate_splits > 0:
             self.boss_data_store.initialize_before_test(X)
 
         self.splitters_initialized_before_test = True
@@ -235,15 +289,15 @@ class TSChiefNode:
             self.leaf = True
             return self
 
-        if self.tree.num_similarity_candidate_splits > 0:
+        if self.tree.n_similarity_candidate_splits > 0:
             ed_splitter = EDSplitter(self, self.tree)
             self.split_functions.append(ed_splitter)
 
-        if self.tree.num_dictionary_candidate_splits > 0:
+        if self.tree.n_dictionary_candidate_splits > 0:
             boss_splitter = BOSSplitter(self, self.tree)
             self.split_functions.append(boss_splitter)
 
-        if self.tree.num_interval_candidate_splits > 0:
+        if self.tree.n_interval_candidate_splits > 0:
             rise_splitter = RISESplitter(self, self.tree)
             self.split_functions.append(rise_splitter)
 

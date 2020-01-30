@@ -4,6 +4,9 @@ from sktime.contrib.ts_chief.tschief import TSChiefForest
 from sktime.contrib.ts_chief.shifaz_dev.test import *
 from sklearn.metrics import accuracy_score
 
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 def test_chief():
     dataset_name = 'Coffee'
@@ -18,11 +21,11 @@ def test_chief():
         'level': 1
     }
 
-    model = TSChiefForest(num_trees=10,
-                          num_similarity_candidate_splits=0,
-                          num_dictionary_candidate_splits=0,
-                          num_interval_candidate_splits=5,
-                          boss_max_num_transformations=50,
+    model = TSChiefForest(n_trees=10,
+                          n_similarity_candidate_splits=5,
+                          n_dictionary_candidate_splits=0,
+                          n_interval_candidate_splits=0,
+                          boss_max_n_transformations=50,
                           verbosity=2, debug_info=debug_info)
     model.fit(x_train, y_train)
     y_pred = model.predict(x_test, y=y_test)

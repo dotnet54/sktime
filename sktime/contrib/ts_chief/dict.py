@@ -88,11 +88,11 @@ class BOSSplitter:
         self.random_boss_transformation = None
 
     def split(self, x_train, y_train, class_indices):
-        candidate_splits_gini = [None] * self.tree.num_dictionary_candidate_splits  # keeping all gini for statistics
+        candidate_splits_gini = [None] * self.tree.n_dictionary_candidate_splits  # keeping all gini for statistics
         min_gini = np.inf
         best_split = None
 
-        for candidate_split_index in range(0, self.tree.num_dictionary_candidate_splits):
+        for candidate_split_index in range(0, self.tree.n_dictionary_candidate_splits):
             current_split = {}
 
             # select one random boss transform
