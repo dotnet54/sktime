@@ -54,7 +54,7 @@ class BOSSDataStore:
             self.train_boss_transformations[param] = x_train_boss
             print(f'{i}.', end='')
 
-        print(f'{self.num_transformations_used} BOSS transforms done')
+        print(f'\nall possible {self.num_transformations_used} BOSS transforms done')
 
 
     def initialize_before_test(self, x_test):
@@ -81,7 +81,7 @@ class BOSSplitter:
         self.tree = tree
         self.boss_data_store = tree.boss_data_store
         self.transformer = None
-        self.similarity_measure = self.boss_dist
+        self.histogram_similarity_measure = self.boss_dist
         self.exemplars = {}
         self.exemplar_indices = {}
         self.random_boss_transformation_params = None
@@ -117,7 +117,7 @@ class BOSSplitter:
             nearest_class = None
             for i in range(x_train.shape[0]):
                 # dont need to store all distances, just storing for debugging
-                distances = [None] * len(self.exemplars)
+                distances = {}
                 min_distance = np.inf
                 for exemplar_class, exemplar in self.exemplars.items():
                     transformed_series = x_train_transformed.iloc[i]
@@ -126,7 +126,7 @@ class BOSSplitter:
                         nearest_class = exemplar_class
                         break
                     else:
-                        distances[exemplar_class] = self.similarity_measure(transformed_series, exemplar)
+                        distances[exemplar_class] = self.histogram_similarity_measure(transformed_series, exemplar)
 
                     # TODO tie break randomly
                     if distances[exemplar_class] <= min_distance:
@@ -144,12 +144,14 @@ class BOSSplitter:
         return best_split
 
     def predict(self, query, qi):
+        # TODO instead of calculating the transform we are just fetching in memory transform
+        # TODO this is temporary -- change this to be independent of the fit function
         transformed_query = self.transformer.transform_query(query)
         distances = {}
         min_distance = np.inf
         nearest_class = None
         for exemplar_class, exemplar in self.exemplars.items():
-            distances[exemplar_class] = self.similarity_measure(transformed_query, exemplar)
+            distances[exemplar_class] = self.histogram_similarity_measure(transformed_query, exemplar)
             # TODO tie break randomly
             if distances[exemplar_class] <= min_distance:
                 min_distance = distances[exemplar_class]

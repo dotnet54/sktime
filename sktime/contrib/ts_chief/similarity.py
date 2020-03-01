@@ -14,10 +14,18 @@ class EDSplitter:
     def __init__(self, node, tree, random_state=None):
         self.node = node
         self.tree = tree
+        # self.enabled_measures = [
+        #     self.euclidean,
+        #     self.dtw, self.ddtw, self.wdtw, self.wddtw,
+        #     self.lcss, self.msm, self.twe, self.erp
+        # ]
+        # TODO temp disable some measures to profile performance
         self.enabled_measures = [
             self.euclidean,
-            self.dtw, self.ddtw, self.wdtw, self.wddtw,
-            self.lcss, self.msm, self.twe, self.erp
+            self.dtw, self.ddtw,
+            self.lcss, self.msm, self.erp,
+            # self.wdtw, self.wddtw,
+            # self.twe
         ]
         self.similarity_measure = None
         self.measure_params = None
@@ -52,7 +60,7 @@ class EDSplitter:
             nearest_class = None
             for i in range(x_train.shape[0]):
                 # dont need to store all distances, just storing for debugging
-                distances = [None] * len(self.exemplars)
+                distances = {}
                 min_distance = np.inf
                 for exemplar_class, exemplar in self.exemplars.items():
                     series = x_train.iloc[i]

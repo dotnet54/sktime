@@ -1,5 +1,7 @@
+import time
+import pickle
+import os
 from sklearn import datasets
-
 from sktime.contrib.ts_chief.tschief import TSChiefForest
 from sktime.contrib.ts_chief.shifaz_dev.test import *
 from sklearn.metrics import accuracy_score
@@ -9,10 +11,11 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 def test_chief():
-    dataset_name = 'Coffee'
-    # dataset_name = 'ItalyPowerDemand'
+    # dataset_name = 'Coffee'
+    dataset_name = 'ItalyPowerDemand'
+    model_file = f'E:/tmp/{dataset_name}.tschief'
 
-    x_train, y_train, x_test, y_test = load_dataset('Coffee')
+    x_train, y_train, x_test, y_test = load_dataset(dataset_name)
     y_train = y_train.astype(int)
     y_test = y_test.astype(int)
     print(f'{dataset_name}:: Train: {x_train.shape}, Test: {x_test.shape}, Classes {np.unique(y_train)}')
@@ -21,14 +24,36 @@ def test_chief():
         'level': 1
     }
 
-    model = TSChiefForest(n_trees=10,
-                          n_similarity_candidate_splits=5,
-                          n_dictionary_candidate_splits=0,
-                          n_interval_candidate_splits=0,
-                          boss_max_n_transformations=50,
-                          verbosity=2, debug_info=debug_info)
-    model.fit(x_train, y_train)
+    load_from_file = False
+    save_model = False
+
+    if load_from_file and os.path.isfile(model_file):
+        print(f'loading saved model in {model_file}')
+        pickle_in = open(model_file, "rb")
+        model = pickle.load(pickle_in)
+    else:
+        model = TSChiefForest(n_trees=100,
+                              n_similarity_candidate_splits=0,
+                              n_dictionary_candidate_splits=100,
+                              n_interval_candidate_splits=0,
+                              boss_max_n_transformations=1000,
+                              # random_state=0,
+                              verbosity=2,
+                              debug_info=debug_info
+                              )
+
+        start_train = time.time()
+        model.fit(x_train, y_train)
+        end_train = time.time()
+        print(end_train - start_train)
+        if save_model:
+            pickle_out = open(model_file, "wb")
+            pickle.dump(model, pickle_out)
+            pickle_out.close()
+
     y_pred = model.predict(x_test, y=y_test)
+    end_test = time.time()
+    print(end_test - end_train)
     score = accuracy_score(y_test, y_pred)
     print(f'Accuracy: {score}')
 

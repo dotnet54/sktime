@@ -233,7 +233,7 @@ class TSChiefTree(BaseClassifier):
             label = None
             while not node.leaf:
                 branch, _ = node.best_split_function.predict(query, i)
-                if self.verbosity > 1:
+                if self.verbosity > 2:
                     if branch != debug["y"][i]:
                         print(f'branch: {branch}, true label:  {debug["y"][i]}')
                 if branch in node.children:
@@ -353,7 +353,7 @@ class TSChiefNode:
 
     def _make_label(self, y_train):
         label = int(np.random.choice(stats.mode(y_train)[0], 1))
-        if self.tree.verbosity > 1:
+        if self.tree.verbosity > 2:
             print(f'new leaf {self.depth}, {self.node_gini}, {label}, {y_train.shape}, {y_train}')
         return label
 
